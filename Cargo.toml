@@ -1,3 +1,3 @@
 [workspace]
 resolver = "2"
-members = ["src/beginner/tutorial1-window"]
+members = ["src/beginner/tutorial1-window", "src/beginner/tutorial2-surface"]
