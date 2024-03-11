@@ -15,3 +15,11 @@ bevy = { version = "0.13.0", default-features = false, features = [
   "bevy_render",
   "multi-threaded",
 ] }
+wgpu = { version = "0.19.3", default-features = false, features = [
+  "wgsl",
+  "dx12",
+  "metal",
+  "naga",
+  "naga-ir",
+  "fragile-send-sync-non-atomic-wasm",
+] }
