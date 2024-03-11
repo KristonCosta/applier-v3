@@ -4,10 +4,10 @@ use bevy::prelude::*;
 use plugin::ApplierPlugin;
 
 fn main() {
-    App::new()
-        .add_plugins((
-            DefaultPlugins.set(ImagePlugin::default_nearest()),
-            ApplierPlugin,
-        ))
-        .run();
+    let mut app = App::new();
+    app.add_plugins((
+        DefaultPlugins.set(ImagePlugin::default_nearest()),
+        ApplierPlugin,
+    ));
+    app.run();
 }

@@ -15,6 +15,7 @@ bevy = { version = "0.13.0", default-features = false, features = [
   "bevy_render",
   "multi-threaded",
 ] }
+bevy_mod_debugdump = "0.10"
 wgpu = { version = "0.19.3", default-features = false, features = [
   "wgsl",
   "dx12",

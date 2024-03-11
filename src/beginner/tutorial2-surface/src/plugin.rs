@@ -1,8 +1,9 @@
 use bevy::{
     prelude::*,
     render::{
+        graph::CameraDriverLabel,
         render_graph::{RenderGraph, RenderGraphApp},
-        RenderApp,
+        Extract, RenderApp,
     },
 };
 
@@ -34,7 +35,7 @@ mod node {
     };
     use wgpu::{Color, RenderPassDescriptor};
 
-    use super::graph::ApplierSubgraph;
+    use super::{graph::ApplierSubgraph, MousePosition};
 
     pub struct SurfaceNode;
 
@@ -46,6 +47,7 @@ mod node {
             world: &'w bevy::prelude::World,
         ) -> Result<(), bevy::render::render_graph::NodeRunError> {
             let windows = world.resource::<ExtractedWindows>();
+            let mouse_position = world.resource::<MousePosition>();
             for window in windows.values() {
                 if let Some(view) = window.swap_chain_texture_view.as_ref() {
                     let color_attachment = Some(RenderPassColorAttachment {
@@ -53,8 +55,8 @@ mod node {
                         resolve_target: None,
                         ops: Operations {
                             load: LoadOp::Clear(Color {
-                                r: 0.1,
-                                g: 0.2,
+                                r: (mouse_position.0 as f64 / window.physical_width as f64),
+                                g: (mouse_position.1 as f64 / window.physical_height as f64),
                                 b: 0.3,
                                 a: 1.0,
                             }),
@@ -98,9 +100,19 @@ mod node {
 
 impl Plugin for ApplierPlugin {
     fn build(&self, app: &mut App) {
+        app.insert_resource(MousePosition(0.0, 0.0))
+            .add_systems(Update, (cursor_events,));
         if let Ok(render_app) = app.get_sub_app_mut(RenderApp) {
+            render_app
+                .insert_resource(MousePosition(0.0, 0.0))
+                .add_systems(ExtractSchedule, extract_mouse_position);
+
             let mut render_graph = render_app.world.resource_mut::<RenderGraph>();
             render_graph.add_node(graph::ApplierNode::ExecuteNode, node::ExecuteNode);
+
+            render_graph
+                .remove_node(CameraDriverLabel)
+                .expect("failed to remove camera driver");
 
             render_app
                 .add_render_sub_graph(graph::ApplierSubgraph)
@@ -109,5 +121,26 @@ impl Plugin for ApplierPlugin {
                     graph::ApplierNode::SurfaceNode,
                 );
         }
+    }
+}
+
+fn extract_mouse_position(
+    mut mouse_position: ResMut<MousePosition>,
+    main_mouse_position: Extract<Res<MousePosition>>,
+) {
+    mouse_position.0 = main_mouse_position.0;
+    mouse_position.1 = main_mouse_position.1;
+}
+
+#[derive(Resource, Debug)]
+pub struct MousePosition(f32, f32);
+
+fn cursor_events(
+    mut events: EventReader<CursorMoved>,
+    mut current_position: ResMut<MousePosition>,
+) {
+    for event in events.read() {
+        current_position.0 = event.position.x;
+        current_position.1 = event.position.y;
     }
 }
