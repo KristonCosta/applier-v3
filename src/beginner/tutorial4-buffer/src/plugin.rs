@@ -44,18 +44,28 @@ mod mesh {
 
     pub const VERTICES: &[Vertex] = &[
         Vertex {
-            position: [0.0, 0.5, 0.0],
-            color: [1.0, 0.0, 0.0],
-        },
+            position: [-0.0868241, 0.49240386, 0.0],
+            color: [0.5, 0.0, 0.5],
+        }, // A
         Vertex {
-            position: [-0.5, -0.5, 0.0],
-            color: [0.0, 1.0, 0.0],
-        },
+            position: [-0.49513406, 0.06958647, 0.0],
+            color: [0.5, 0.0, 0.5],
+        }, // B
         Vertex {
-            position: [0.5, -0.5, 0.0],
-            color: [0.0, 0.0, 1.0],
-        },
+            position: [-0.21918549, -0.44939706, 0.0],
+            color: [0.5, 0.0, 0.5],
+        }, // C
+        Vertex {
+            position: [0.35966998, -0.3473291, 0.0],
+            color: [0.5, 0.0, 0.5],
+        }, // D
+        Vertex {
+            position: [0.44147372, 0.2347359, 0.0],
+            color: [0.5, 0.0, 0.5],
+        }, // E
     ];
+
+    pub const INDICES: &[u32] = &[0, 1, 4, 1, 2, 4, 2, 3, 4, 0];
 
     impl Vertex {
         pub fn desc() -> VertexBufferLayout {
@@ -92,7 +102,9 @@ mod node {
     };
     use wgpu::{Color, RenderPassDescriptor};
 
-    use super::{graph::ApplierSubgraph, pipeline::ApplierPipeline, MousePosition, VertexBuffer};
+    use super::{
+        graph::ApplierSubgraph, pipeline::ApplierPipeline, IndexBuffer, MousePosition, VertexBuffer,
+    };
 
     pub struct SurfaceNode;
 
@@ -108,6 +120,7 @@ mod node {
             let pipeline_cache = world.resource::<PipelineCache>();
             let applier_pipeline = world.resource::<ApplierPipeline>();
             let vertex_buffer = world.resource::<VertexBuffer>();
+            let index_buffer = world.resource::<IndexBuffer>();
 
             for window in windows.values() {
                 if let Some(view) = window.swap_chain_texture_view.as_ref() {
@@ -144,7 +157,16 @@ mod node {
                                 .expect("buffer was not set")
                                 .slice(..),
                         );
-                        render_pass.draw(0..vertex_buffer.0.len() as u32, 0..1);
+                        render_pass.set_index_buffer(
+                            index_buffer
+                                .0
+                                .buffer()
+                                .expect("buffer was not set")
+                                .slice(..),
+                            0,
+                            wgpu::IndexFormat::Uint32,
+                        );
+                        render_pass.draw_indexed(0..index_buffer.0.len() as u32, 0, 0..1)
                     }
                 }
             }
@@ -257,6 +279,7 @@ impl Plugin for ApplierPlugin {
             render_app
                 .insert_resource(MousePosition(0.0, 0.0))
                 .init_resource::<VertexBuffer>()
+                .init_resource::<IndexBuffer>()
                 .add_systems(ExtractSchedule, extract_mouse_position)
                 .add_systems(Render, prepare_buffers.in_set(RenderSet::PrepareResources));
 
@@ -294,6 +317,17 @@ impl FromWorld for VertexBuffer {
     }
 }
 
+#[derive(Resource)]
+pub struct IndexBuffer(BufferVec<u32>);
+
+impl FromWorld for IndexBuffer {
+    fn from_world(_world: &mut World) -> Self {
+        let mut buff = BufferVec::new(BufferUsages::INDEX);
+        buff.extend(mesh::INDICES.to_vec());
+        Self(buff)
+    }
+}
+
 fn extract_mouse_position(
     mut mouse_position: ResMut<MousePosition>,
     main_mouse_position: Extract<Res<MousePosition>>,
@@ -319,6 +353,8 @@ fn prepare_buffers(
     render_device: Res<RenderDevice>,
     render_queue: Res<RenderQueue>,
     mut vertex_buffer: ResMut<VertexBuffer>,
+    mut index_buffer: ResMut<IndexBuffer>,
 ) {
     vertex_buffer.0.write_buffer(&render_device, &render_queue);
+    index_buffer.0.write_buffer(&render_device, &render_queue);
 }

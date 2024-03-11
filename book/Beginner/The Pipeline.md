@@ -157,3 +157,6 @@ impl Node for SurfaceNode {
         }
 
 ```
+Running the program now should show you the brown triangle:
+
+![[brown_triangle.png]]
