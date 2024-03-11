@@ -1,0 +1,174 @@
+{
+  "main": {
+    "id": "872fa49fce47d071",
+    "type": "split",
+    "children": [
+      {
+        "id": "978744b438efd906",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "a90228254a3c3cc0",
+            "type": "leaf",
+            "state": {
+              "type": "markdown",
+              "state": {
+                "file": "Beginner/The Surface.md",
+                "mode": "source",
+                "source": false
+              }
+            }
+          },
+          {
+            "id": "93433aa869a76c60",
+            "type": "leaf",
+            "state": {
+              "type": "markdown",
+              "state": {
+                "file": "Beginner/The Surface.md",
+                "mode": "source",
+                "source": false
+              }
+            }
+          }
+        ],
+        "currentTab": 1
+      }
+    ],
+    "direction": "vertical"
+  },
+  "left": {
+    "id": "4dd67d4ad215c07c",
+    "type": "split",
+    "children": [
+      {
+        "id": "95f747b7dc2fa1b7",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "adadb730ab62b557",
+            "type": "leaf",
+            "state": {
+              "type": "file-explorer",
+              "state": {
+                "sortOrder": "alphabetical"
+              }
+            }
+          },
+          {
+            "id": "b849236b8f028759",
+            "type": "leaf",
+            "state": {
+              "type": "search",
+              "state": {
+                "query": "",
+                "matchingCase": false,
+                "explainSearch": false,
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical"
+              }
+            }
+          },
+          {
+            "id": "943f713aa7569023",
+            "type": "leaf",
+            "state": {
+              "type": "bookmarks",
+              "state": {}
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 242.5
+  },
+  "right": {
+    "id": "02485c3025655d6e",
+    "type": "split",
+    "children": [
+      {
+        "id": "f8fc962ce23bec0d",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "72cb224f9f79679d",
+            "type": "leaf",
+            "state": {
+              "type": "backlink",
+              "state": {
+                "file": "Beginner/The Surface.md",
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical",
+                "showSearch": false,
+                "searchQuery": "",
+                "backlinkCollapsed": false,
+                "unlinkedCollapsed": true
+              }
+            }
+          },
+          {
+            "id": "fea68809e3090e44",
+            "type": "leaf",
+            "state": {
+              "type": "outgoing-link",
+              "state": {
+                "file": "Beginner/The Surface.md",
+                "linksCollapsed": false,
+                "unlinkedCollapsed": true
+              }
+            }
+          },
+          {
+            "id": "fd77b7f1c4173ee7",
+            "type": "leaf",
+            "state": {
+              "type": "tag",
+              "state": {
+                "sortOrder": "frequency",
+                "useHierarchy": true
+              }
+            }
+          },
+          {
+            "id": "ab9008c1b7827842",
+            "type": "leaf",
+            "state": {
+              "type": "outline",
+              "state": {
+                "file": "Beginner/The Surface.md"
+              }
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300,
+    "collapsed": true
+  },
+  "left-ribbon": {
+    "hiddenItems": {
+      "switcher:Open quick switcher": false,
+      "graph:Open graph view": false,
+      "canvas:Create new canvas": false,
+      "daily-notes:Open today's daily note": false,
+      "templates:Insert template": false,
+      "command-palette:Open command palette": false
+    }
+  },
+  "active": "adadb730ab62b557",
+  "lastOpenFiles": [
+    "colorful_background.png",
+    "blue_screen_success.png",
+    "Beginner/Dependencies and the window.md",
+    "unexpected_node_viz.png",
+    "Beginner/The Surface.md",
+    "Old implementation using Camera.md",
+    "basic_window.png",
+    "Introduction.md",
+    "Beginner"
+  ]
+}
