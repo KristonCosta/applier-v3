@@ -1,0 +1,28 @@
+[package]
+name = "tutorial4-buffer"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "tutorial4-buffer"
+path = "src/main.rs"
+
+
+[dependencies]
+bevy = { version = "0.13.0", default-features = false, features = [
+  "bevy_asset",
+  "bevy_winit",
+  "bevy_render",
+  "multi-threaded",
+] }
+bevy_mod_debugdump = "0.10"
+bytemuck = { version = "1.14", features = ["derive"] }
+wgpu = { version = "0.19.3", default-features = false, features = [
+  "wgsl",
+  "dx12",
+  "metal",
+  "naga",
+  "naga-ir",
+  "fragile-send-sync-non-atomic-wasm",
+] }
+
