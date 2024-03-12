@@ -39,8 +39,8 @@ mod mesh {
     use std::mem;
 
     use bevy::render::render_resource::VertexBufferLayout;
-    use bytemuck::{Pod, Zeroable};
-    use wgpu::{BufferAddress, VertexAttribute, VertexFormat, VertexStepMode};
+
+    use wgpu::{BufferAddress, VertexStepMode};
 
     #[repr(C)]
     #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
@@ -212,12 +212,9 @@ mod material {
         ecs::{system::Resource, world::FromWorld},
         render::{
             render_resource::{AsBindGroup, BindGroup, OwnedBindingResource},
-            renderer::RenderDevice,
-            texture::{FallbackImage, Image},
+            texture::Image,
         },
     };
-
-    use super::pipeline::ApplierPipeline;
 
     #[derive(AsBindGroup, Resource)]
     pub struct ApplierMaterial {
