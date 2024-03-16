@@ -3,7 +3,7 @@ use bevy::{
     prelude::*,
     render::{
         graph::CameraDriverLabel,
-        render_asset::RenderAssets,
+        render_asset::{RenderAssetPlugin, RenderAssets},
         render_graph::{RenderGraph, RenderGraphApp},
         render_resource::{AsBindGroup, BufferVec},
         renderer::{RenderDevice, RenderQueue},
@@ -101,6 +101,7 @@ mod node {
     use bevy::{
         ecs::world::FromWorld,
         render::{
+            render_asset::{RenderAsset, RenderAssets},
             render_graph::Node,
             render_resource::{
                 LoadOp, Operations, PipelineCache, RenderPassColorAttachment, StoreOp,
@@ -111,7 +112,9 @@ mod node {
     use wgpu::{Color, RenderPassDescriptor};
 
     use super::{
-        graph::ApplierSubgraph, material::PreparedApplierMaterial, pipeline::ApplierPipeline,
+        graph::ApplierSubgraph,
+        material::{ApplierMaterial, PreparedApplierMaterial},
+        pipeline::ApplierPipeline,
         IndexBuffer, MousePosition, VertexBuffer,
     };
 
@@ -130,8 +133,12 @@ mod node {
             let applier_pipeline = world.resource::<ApplierPipeline>();
             let vertex_buffer = world.resource::<VertexBuffer>();
             let index_buffer = world.resource::<IndexBuffer>();
-            let bind_group = world.resource::<PreparedApplierMaterial>();
-
+            let material = world
+                .resource::<RenderAssets<ApplierMaterial>>()
+                .iter()
+                .next()
+                .unwrap()
+                .1;
             for window in windows.values() {
                 if let Some(view) = window.swap_chain_texture_view.as_ref() {
                     let color_attachment = Some(RenderPassColorAttachment {
@@ -159,7 +166,7 @@ mod node {
                     if let Some(pipeline) = pipeline_cache.get_render_pipeline(applier_pipeline.id)
                     {
                         render_pass.set_render_pipeline(pipeline);
-                        render_pass.set_bind_group(0, &bind_group.bind_group, &[]);
+                        render_pass.set_bind_group(0, &material.bind_group, &[]);
                         render_pass.set_vertex_buffer(
                             0,
                             vertex_buffer
@@ -206,35 +213,70 @@ mod node {
     }
 }
 
-mod material {
+pub mod material {
     use bevy::{
-        asset::{AssetServer, Handle},
-        ecs::{system::Resource, world::FromWorld},
+        asset::{Asset, AssetServer, Handle},
+        ecs::{
+            system::{lifetimeless::SRes, Resource},
+            world::FromWorld,
+        },
+        reflect::Reflect,
         render::{
+            render_asset::{RenderAsset, RenderAssetUsages, RenderAssets},
             render_resource::{AsBindGroup, BindGroup, OwnedBindingResource},
-            texture::Image,
+            renderer::RenderDevice,
+            texture::{FallbackImage, Image},
         },
     };
 
-    #[derive(AsBindGroup, Resource)]
+    use super::pipeline::ApplierPipeline;
+
+    #[derive(AsBindGroup, Asset, Clone, Reflect)]
     pub struct ApplierMaterial {
         #[texture(0)]
         #[sampler(1)]
         pub image: Handle<Image>,
     }
 
-    impl FromWorld for ApplierMaterial {
-        fn from_world(world: &mut bevy::prelude::World) -> Self {
-            let asset_server = world.resource::<AssetServer>();
-            let handle = asset_server.load("tree.png");
-            Self { image: handle }
-        }
-    }
-
-    #[derive(Resource)]
     pub struct PreparedApplierMaterial {
         pub bindings: Vec<(u32, OwnedBindingResource)>,
         pub bind_group: BindGroup,
+    }
+
+    impl RenderAsset for ApplierMaterial {
+        type PreparedAsset = PreparedApplierMaterial;
+
+        type Param = (
+            SRes<RenderDevice>,
+            SRes<RenderAssets<Image>>,
+            SRes<FallbackImage>,
+            SRes<ApplierPipeline>,
+        );
+
+        fn asset_usage(&self) -> RenderAssetUsages {
+            RenderAssetUsages::RENDER_WORLD
+        }
+
+        fn prepare_asset(
+            self,
+            (render_device, images, fallback_image, pipeline): &mut bevy::ecs::system::SystemParamItem<Self::Param>,
+        ) -> Result<Self::PreparedAsset, bevy::render::render_asset::PrepareAssetError<Self>>
+        {
+            println!("Extracting");
+            let prepared = self
+                .as_bind_group(
+                    &pipeline.material_layout,
+                    &render_device,
+                    &images,
+                    &fallback_image,
+                )
+                .unwrap();
+
+            Ok(PreparedApplierMaterial {
+                bindings: prepared.bindings,
+                bind_group: prepared.bind_group,
+            })
+        }
     }
 }
 
@@ -326,7 +368,8 @@ impl Plugin for ApplierPlugin {
             Shader::from_wgsl
         );
         app.insert_resource(MousePosition(0.0, 0.0))
-            .init_resource::<ApplierMaterial>()
+            .init_asset::<ApplierMaterial>()
+            .add_plugins(RenderAssetPlugin::<ApplierMaterial>::default())
             .add_systems(Update, (cursor_events,));
 
         if let Ok(render_app) = app.get_sub_app_mut(RenderApp) {
@@ -334,13 +377,10 @@ impl Plugin for ApplierPlugin {
                 .insert_resource(MousePosition(0.0, 0.0))
                 .init_resource::<VertexBuffer>()
                 .init_resource::<IndexBuffer>()
-                .add_systems(ExtractSchedule, (extract_mouse_position, extract_material))
+                .add_systems(ExtractSchedule, (extract_mouse_position,))
                 .add_systems(
                     Render,
-                    (
-                        prepare_buffers.in_set(RenderSet::PrepareResources),
-                        prepare_bind_groups.in_set(RenderSet::PrepareResources),
-                    ),
+                    (prepare_buffers.in_set(RenderSet::PrepareResources),),
                 );
 
             let mut render_graph = render_app.world.resource_mut::<RenderGraph>();
@@ -396,18 +436,6 @@ fn extract_mouse_position(
     mouse_position.1 = main_mouse_position.1;
 }
 
-fn extract_material(
-    mut commands: Commands,
-    extracted_material: Option<Res<ApplierMaterial>>,
-    main_material: Extract<Res<ApplierMaterial>>,
-) {
-    if extracted_material.is_none() {
-        commands.insert_resource(ApplierMaterial {
-            image: main_material.image.clone(),
-        })
-    }
-}
-
 #[derive(Resource, Debug)]
 pub struct MousePosition(f32, f32);
 
@@ -429,30 +457,4 @@ fn prepare_buffers(
 ) {
     vertex_buffer.0.write_buffer(&render_device, &render_queue);
     index_buffer.0.write_buffer(&render_device, &render_queue);
-}
-
-fn prepare_bind_groups(
-    mut commands: Commands,
-    render_device: Res<RenderDevice>,
-    material: Res<ApplierMaterial>,
-    images: Res<RenderAssets<Image>>,
-    fallback_image: Res<FallbackImage>,
-    prepared_material: Option<Res<PreparedApplierMaterial>>,
-    pipeline: Res<ApplierPipeline>,
-) {
-    if prepared_material.is_none() {
-        let prepared = material
-            .as_bind_group(
-                &pipeline.material_layout,
-                &render_device,
-                &images,
-                &fallback_image,
-            )
-            .expect("failed to prepare bind group");
-
-        commands.insert_resource(PreparedApplierMaterial {
-            bindings: prepared.bindings,
-            bind_group: prepared.bind_group,
-        });
-    }
 }
