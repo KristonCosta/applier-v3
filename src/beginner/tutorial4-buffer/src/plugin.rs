@@ -4,7 +4,7 @@ use bevy::{
     render::{
         graph::CameraDriverLabel,
         render_graph::{RenderGraph, RenderGraphApp},
-        render_resource::BufferVec,
+        render_resource::RawBufferVec,
         renderer::{RenderDevice, RenderQueue},
         Extract, Render, RenderApp, RenderSet,
     },
@@ -275,7 +275,7 @@ impl Plugin for ApplierPlugin {
         );
         app.insert_resource(MousePosition(0.0, 0.0))
             .add_systems(Update, (cursor_events,));
-        if let Ok(render_app) = app.get_sub_app_mut(RenderApp) {
+        if let Some(render_app) = app.get_sub_app_mut(RenderApp) {
             render_app
                 .insert_resource(MousePosition(0.0, 0.0))
                 .init_resource::<VertexBuffer>()
@@ -283,7 +283,7 @@ impl Plugin for ApplierPlugin {
                 .add_systems(ExtractSchedule, extract_mouse_position)
                 .add_systems(Render, prepare_buffers.in_set(RenderSet::PrepareResources));
 
-            let mut render_graph = render_app.world.resource_mut::<RenderGraph>();
+            let mut render_graph = render_app.world_mut().resource_mut::<RenderGraph>();
             render_graph.add_node(graph::ApplierNode::ExecuteNode, node::ExecuteNode);
 
             render_graph
@@ -300,29 +300,29 @@ impl Plugin for ApplierPlugin {
     }
 
     fn finish(&self, app: &mut App) {
-        if let Ok(render_app) = app.get_sub_app_mut(RenderApp) {
+        if let Some(render_app) = app.get_sub_app_mut(RenderApp) {
             render_app.init_resource::<ApplierPipeline>();
         }
     }
 }
 
 #[derive(Resource)]
-pub struct VertexBuffer(BufferVec<mesh::Vertex>);
+pub struct VertexBuffer(RawBufferVec<mesh::Vertex>);
 
 impl FromWorld for VertexBuffer {
     fn from_world(_world: &mut World) -> Self {
-        let mut buff = BufferVec::new(BufferUsages::VERTEX);
+        let mut buff = RawBufferVec::new(BufferUsages::VERTEX);
         buff.extend(mesh::VERTICES.to_vec());
         Self(buff)
     }
 }
 
 #[derive(Resource)]
-pub struct IndexBuffer(BufferVec<u32>);
+pub struct IndexBuffer(RawBufferVec<u32>);
 
 impl FromWorld for IndexBuffer {
     fn from_world(_world: &mut World) -> Self {
-        let mut buff = BufferVec::new(BufferUsages::INDEX);
+        let mut buff = RawBufferVec::new(BufferUsages::INDEX);
         buff.extend(mesh::INDICES.to_vec());
         Self(buff)
     }

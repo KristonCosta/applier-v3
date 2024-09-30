@@ -102,12 +102,12 @@ impl Plugin for ApplierPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(MousePosition(0.0, 0.0))
             .add_systems(Update, (cursor_events,));
-        if let Ok(render_app) = app.get_sub_app_mut(RenderApp) {
+        if let Some(render_app) = app.get_sub_app_mut(RenderApp) {
             render_app
                 .insert_resource(MousePosition(0.0, 0.0))
                 .add_systems(ExtractSchedule, extract_mouse_position);
 
-            let mut render_graph = render_app.world.resource_mut::<RenderGraph>();
+            let mut render_graph = render_app.world_mut().resource_mut::<RenderGraph>();
             render_graph.add_node(graph::ApplierNode::ExecuteNode, node::ExecuteNode);
 
             render_graph

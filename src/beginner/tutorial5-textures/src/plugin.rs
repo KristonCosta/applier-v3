@@ -1,13 +1,12 @@
 use bevy::{
     asset::load_internal_asset,
+    ecs::system::{StaticSystemParam, SystemParamItem},
     prelude::*,
     render::{
         graph::CameraDriverLabel,
-        render_asset::RenderAssets,
         render_graph::{RenderGraph, RenderGraphApp},
-        render_resource::{AsBindGroup, BufferVec},
+        render_resource::{AsBindGroup, RawBufferVec},
         renderer::{RenderDevice, RenderQueue},
-        texture::FallbackImage,
         Extract, Render, RenderApp, RenderSet,
     },
 };
@@ -38,12 +37,12 @@ mod graph {
 mod mesh {
     use std::mem;
 
-    use bevy::render::render_resource::VertexBufferLayout;
+    use bevy::render::render_resource::{ShaderType, VertexBufferLayout};
 
     use wgpu::{BufferAddress, VertexStepMode};
 
     #[repr(C)]
-    #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+    #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable, ShaderType)]
     pub struct Vertex {
         position: [f32; 3],
         tex_coords: [f32; 2], // NEW!
@@ -233,7 +232,7 @@ mod material {
 
     #[derive(Resource)]
     pub struct PreparedApplierMaterial {
-        pub bindings: Vec<(u32, OwnedBindingResource)>,
+        pub _bindings: Vec<(u32, OwnedBindingResource)>,
         pub bind_group: BindGroup,
     }
 }
@@ -329,7 +328,7 @@ impl Plugin for ApplierPlugin {
             .init_resource::<ApplierMaterial>()
             .add_systems(Update, (cursor_events,));
 
-        if let Ok(render_app) = app.get_sub_app_mut(RenderApp) {
+        if let Some(render_app) = app.get_sub_app_mut(RenderApp) {
             render_app
                 .insert_resource(MousePosition(0.0, 0.0))
                 .init_resource::<VertexBuffer>()
@@ -343,7 +342,7 @@ impl Plugin for ApplierPlugin {
                     ),
                 );
 
-            let mut render_graph = render_app.world.resource_mut::<RenderGraph>();
+            let mut render_graph = render_app.world_mut().resource_mut::<RenderGraph>();
             render_graph.add_node(graph::ApplierNode::ExecuteNode, node::ExecuteNode);
 
             render_graph
@@ -360,29 +359,29 @@ impl Plugin for ApplierPlugin {
     }
 
     fn finish(&self, app: &mut App) {
-        if let Ok(render_app) = app.get_sub_app_mut(RenderApp) {
+        if let Some(render_app) = app.get_sub_app_mut(RenderApp) {
             render_app.init_resource::<ApplierPipeline>();
         }
     }
 }
 
 #[derive(Resource)]
-pub struct VertexBuffer(BufferVec<mesh::Vertex>);
+pub struct VertexBuffer(RawBufferVec<mesh::Vertex>);
 
 impl FromWorld for VertexBuffer {
     fn from_world(_world: &mut World) -> Self {
-        let mut buff = BufferVec::new(BufferUsages::VERTEX);
+        let mut buff = RawBufferVec::new(BufferUsages::VERTEX);
         buff.extend(mesh::VERTICES.to_vec());
         Self(buff)
     }
 }
 
 #[derive(Resource)]
-pub struct IndexBuffer(BufferVec<u32>);
+pub struct IndexBuffer(RawBufferVec<u32>);
 
 impl FromWorld for IndexBuffer {
     fn from_world(_world: &mut World) -> Self {
-        let mut buff = BufferVec::new(BufferUsages::INDEX);
+        let mut buff = RawBufferVec::new(BufferUsages::INDEX);
         buff.extend(mesh::INDICES.to_vec());
         Self(buff)
     }
@@ -435,23 +434,17 @@ fn prepare_bind_groups(
     mut commands: Commands,
     render_device: Res<RenderDevice>,
     material: Res<ApplierMaterial>,
-    images: Res<RenderAssets<Image>>,
-    fallback_image: Res<FallbackImage>,
+    mut param: StaticSystemParam<SystemParamItem<'_, '_, <ApplierMaterial as AsBindGroup>::Param>>,
     prepared_material: Option<Res<PreparedApplierMaterial>>,
     pipeline: Res<ApplierPipeline>,
 ) {
     if prepared_material.is_none() {
         let prepared = material
-            .as_bind_group(
-                &pipeline.material_layout,
-                &render_device,
-                &images,
-                &fallback_image,
-            )
+            .as_bind_group(&pipeline.material_layout, &render_device, &mut param)
             .expect("failed to prepare bind group");
 
         commands.insert_resource(PreparedApplierMaterial {
-            bindings: prepared.bindings,
+            _bindings: prepared.bindings,
             bind_group: prepared.bind_group,
         });
     }

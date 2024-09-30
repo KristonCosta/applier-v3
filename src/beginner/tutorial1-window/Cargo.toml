@@ -9,9 +9,9 @@ path = "src/main.rs"
 
 
 [dependencies]
-bevy = { version = "0.13.0", default-features = false, features = [
-  "bevy_asset",
-  "bevy_winit",
-  "bevy_render",
-  "multi-threaded",
-] }
+bevy = { default-features = false, git = "https://github.com/bevyengine/bevy.git", features = [
+    "bevy_asset",
+    "bevy_winit",
+    "bevy_render",
+    "multi_threaded",
+  ] }
