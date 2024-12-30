@@ -13,7 +13,7 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "Beginner/The Surface.md",
+                "file": "Beginner/2 - The Surface.md",
                 "mode": "source",
                 "source": false
               }
@@ -25,7 +25,7 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "Beginner/The Surface.md",
+                "file": "Beginner/4 - Buffers and Indices.md",
                 "mode": "source",
                 "source": false
               }
@@ -98,7 +98,7 @@
             "state": {
               "type": "backlink",
               "state": {
-                "file": "Beginner/The Surface.md",
+                "file": "Beginner/4 - Buffers and Indices.md",
                 "collapseAll": false,
                 "extraContext": false,
                 "sortOrder": "alphabetical",
@@ -115,7 +115,7 @@
             "state": {
               "type": "outgoing-link",
               "state": {
-                "file": "Beginner/The Surface.md",
+                "file": "Beginner/4 - Buffers and Indices.md",
                 "linksCollapsed": false,
                 "unlinkedCollapsed": true
               }
@@ -138,7 +138,7 @@
             "state": {
               "type": "outline",
               "state": {
-                "file": "Beginner/The Surface.md"
+                "file": "Beginner/4 - Buffers and Indices.md"
               }
             }
           }
@@ -159,13 +159,16 @@
       "command-palette:Open command palette": false
     }
   },
-  "active": "adadb730ab62b557",
+  "active": "93433aa869a76c60",
   "lastOpenFiles": [
+    "Beginner/5 - Textures and bind groups.md",
+    "Beginner/3 - The Pipeline.md",
+    "Beginner/1 - Dependencies and the window.md",
+    "Beginner/4 - Buffers and Indices.md",
+    "Beginner/2 - The Surface.md",
     "colorful_background.png",
     "blue_screen_success.png",
-    "Beginner/Dependencies and the window.md",
     "unexpected_node_viz.png",
-    "Beginner/The Surface.md",
     "Old implementation using Camera.md",
     "basic_window.png",
     "Introduction.md",
