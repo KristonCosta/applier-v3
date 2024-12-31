@@ -5,7 +5,11 @@ use bevy::{
     render::{
         graph::CameraDriverLabel,
         render_graph::{RenderGraph, RenderGraphApp},
-        render_resource::{AsBindGroup, DynamicUniformBuffer, RawBufferVec},
+        render_resource::{
+            binding_types::uniform_buffer, AsBindGroup, BindGroup, BindGroupEntries,
+            BindGroupLayout, BindGroupLayoutEntries, DynamicUniformBuffer, RawBufferVec,
+            ShaderStages,
+        },
         renderer::{RenderDevice, RenderQueue},
         Extract, Render, RenderApp, RenderSet,
     },
@@ -25,7 +29,8 @@ pub struct ApplierPlugin;
 
 mod camera {
     use bevy::{prelude::*, render::render_resource::ShaderType};
-    use cgmath::{perspective, Deg, Matrix4, Point3, Vector3, Vector4};
+    use bitmask_enum::bitmask;
+    use cgmath::{perspective, Deg, InnerSpace, Matrix4, Point3, Vector3, Vector4};
 
     #[rustfmt::skip]
     const OPENGL_TO_WGPU_MATRIX: cgmath::Matrix4<f32> = cgmath::Matrix4::new(
@@ -35,7 +40,7 @@ mod camera {
         0.0, 0.0, 0.0, 1.0,
     );
 
-    #[derive(Resource, Clone)]
+    #[derive(Resource, Clone, Debug)]
     pub struct Camera {
         pub eye: Point3<f32>,
         pub target: Point3<f32>,
@@ -76,6 +81,89 @@ mod camera {
     #[derive(Debug, Clone, ShaderType)]
     pub struct CameraUniform {
         pub view_proj: Mat4,
+    }
+
+    #[bitmask(u8)]
+    enum CameraDirection {
+        Forward = 0b00000001,
+        Backward = 0b00000010,
+        Left = 0b00000100,
+        Right = 0b00001000,
+        Up = 0b00010000,
+        Down = 0b00100000,
+    }
+
+    pub struct CameraPlugin;
+
+    impl Plugin for CameraPlugin {
+        fn build(&self, app: &mut App) {
+            app.add_event::<CameraEvent>()
+                .add_systems(Update, (handle_camera_input, process_camera_events));
+        }
+    }
+
+    #[derive(Event)]
+    pub enum CameraEvent {
+        // The move camera should have a bit mask that lets us define forwaard, backward, left, right, up, down
+        MoveCamera(CameraDirection),
+    }
+
+    const CAMERA_SPEED: f32 = 0.2;
+
+    fn process_camera_events(mut events: EventReader<CameraEvent>, mut camera: ResMut<Camera>) {
+        for event in events.read() {
+            match event {
+                CameraEvent::MoveCamera(direction) => {
+                    let forward = camera.target - camera.eye;
+                    let forward_norm = forward.normalize();
+
+                    if direction.contains(CameraDirection::Forward) {
+                        camera.eye += forward_norm * CAMERA_SPEED;
+                    }
+                    if direction.contains(CameraDirection::Backward) {
+                        camera.eye -= forward_norm * CAMERA_SPEED;
+                    }
+
+                    let right = forward_norm.cross(camera.up);
+
+                    let forward = camera.target - camera.eye;
+                    let forward_mag = forward.magnitude();
+
+                    if direction.contains(CameraDirection::Right) {
+                        camera.eye = camera.target
+                            - (forward + right * CAMERA_SPEED).normalize() * forward_mag;
+                    }
+
+                    if direction.contains(CameraDirection::Left) {
+                        camera.eye = camera.target
+                            - (forward - right * CAMERA_SPEED).normalize() * forward_mag;
+                    }
+                }
+            }
+        }
+    }
+
+    fn handle_camera_input(
+        keyboard_input: Res<ButtonInput<KeyCode>>,
+        mut camera_events: EventWriter<CameraEvent>,
+    ) {
+        let mut direction = CameraDirection::none();
+
+        if keyboard_input.pressed(KeyCode::KeyW) {
+            direction |= CameraDirection::Forward;
+        }
+        if keyboard_input.pressed(KeyCode::KeyS) {
+            direction |= CameraDirection::Backward;
+        }
+        if keyboard_input.pressed(KeyCode::KeyA) {
+            direction |= CameraDirection::Left;
+        }
+        if keyboard_input.pressed(KeyCode::KeyD) {
+            direction |= CameraDirection::Right;
+        }
+        if direction != CameraDirection::none() {
+            camera_events.send(CameraEvent::MoveCamera(direction));
+        }
     }
 }
 
@@ -168,7 +256,7 @@ mod node {
 
     use super::{
         graph::ApplierSubgraph, material::PreparedApplierMaterial, pipeline::ApplierPipeline,
-        IndexBuffer, MousePosition, VertexBuffer,
+        CameraBuffer, IndexBuffer, MousePosition, VertexBuffer,
     };
 
     pub struct SurfaceNode;
@@ -187,6 +275,11 @@ mod node {
             let vertex_buffer = world.resource::<VertexBuffer>();
             let index_buffer = world.resource::<IndexBuffer>();
             let bind_group = world.resource::<PreparedApplierMaterial>();
+            let camera_bind_group = world
+                .resource::<CameraBuffer>()
+                .bind_group
+                .as_ref()
+                .unwrap();
 
             for window in windows.values() {
                 if let Some(view) = window.swap_chain_texture_view.as_ref() {
@@ -216,6 +309,7 @@ mod node {
                     {
                         render_pass.set_render_pipeline(pipeline);
                         render_pass.set_bind_group(0, &bind_group.bind_group, &[]);
+                        render_pass.set_bind_group(1, camera_bind_group, &[]);
                         render_pass.set_vertex_buffer(
                             0,
                             vertex_buffer
@@ -296,9 +390,11 @@ mod pipeline {
     use bevy::{
         asset::Handle,
         ecs::{system::Resource, world::FromWorld},
+        prelude::Camera,
         render::{
             render_resource::{
-                AsBindGroup, BindGroupLayout, CachedRenderPipelineId, FragmentState, PipelineCache,
+                binding_types::uniform_buffer, AsBindGroup, BindGroupLayout,
+                BindGroupLayoutEntries, CachedRenderPipelineId, FragmentState, PipelineCache,
                 RenderPipelineDescriptor, Shader, VertexState,
             },
             renderer::RenderDevice,
@@ -306,10 +402,10 @@ mod pipeline {
     };
     use wgpu::{
         BlendState, ColorTargetState, ColorWrites, Face, FrontFace, MultisampleState, PolygonMode,
-        PrimitiveState, PrimitiveTopology, TextureFormat,
+        PrimitiveState, PrimitiveTopology, ShaderStages, TextureFormat,
     };
 
-    use super::{material::ApplierMaterial, mesh::Vertex};
+    use super::{camera::CameraUniform, material::ApplierMaterial, mesh::Vertex, CameraBuffer};
 
     pub const APPLIER_SHADER_HANDLE: Handle<Shader> =
         Handle::weak_from_u128(154484490495509739857733487233335592041);
@@ -322,8 +418,14 @@ mod pipeline {
 
     impl FromWorld for ApplierPipeline {
         fn from_world(world: &mut bevy::prelude::World) -> Self {
+            let mut camera = world.remove_resource::<CameraBuffer>().unwrap();
+
             let render_device = world.resource::<RenderDevice>();
             let material_layout = ApplierMaterial::bind_group_layout(render_device);
+
+            camera.init_bind_group_layout(render_device);
+            world.insert_resource(camera);
+            let camera = world.resource::<CameraBuffer>();
             let descriptor = RenderPipelineDescriptor {
                 vertex: VertexState {
                     shader: APPLIER_SHADER_HANDLE,
@@ -341,7 +443,10 @@ mod pipeline {
                         write_mask: ColorWrites::ALL,
                     })],
                 }),
-                layout: vec![material_layout.clone()],
+                layout: vec![
+                    material_layout.clone(),
+                    camera.layout.as_ref().unwrap().clone(),
+                ],
                 push_constant_ranges: Vec::new(),
                 primitive: PrimitiveState {
                     front_face: FrontFace::Ccw,
@@ -380,7 +485,8 @@ impl Plugin for ApplierPlugin {
             "shaders.wgsl",
             Shader::from_wgsl
         );
-        app.insert_resource(MousePosition(0.0, 0.0))
+        app.add_plugins((camera::CameraPlugin))
+            .insert_resource(MousePosition(0.0, 0.0))
             .init_resource::<ApplierMaterial>()
             .insert_resource(camera::Camera {
                 eye: Point3::new(0.0, 0.0, 1.0),
@@ -435,13 +541,44 @@ impl Plugin for ApplierPlugin {
 }
 
 #[derive(Resource)]
-pub struct CameraBuffer(DynamicUniformBuffer<CameraUniform>);
+pub struct CameraBuffer {
+    buf: DynamicUniformBuffer<CameraUniform>,
+    bind_group: Option<BindGroup>,
+    layout: Option<BindGroupLayout>,
+}
 
 impl FromWorld for CameraBuffer {
-    fn from_world(_world: &mut World) -> Self {
-        let buff = DynamicUniformBuffer::default();
+    fn from_world(world: &mut World) -> Self {
+        let buf = DynamicUniformBuffer::default();
 
-        Self(buff)
+        Self {
+            buf,
+            bind_group: None,
+            layout: None,
+        }
+    }
+}
+
+impl CameraBuffer {
+    pub fn init_bind_group(&mut self, render_device: &RenderDevice) {
+        self.bind_group = Some(render_device.create_bind_group(
+            "Camera bind group",
+            &self.layout.as_ref().unwrap(),
+            &BindGroupEntries::single(self.buf.buffer().unwrap().as_entire_buffer_binding()),
+        ));
+    }
+
+    pub fn init_bind_group_layout(&mut self, render_device: &RenderDevice) {
+        self.layout = Some(
+            render_device.create_bind_group_layout(
+                "Camera bind group layout",
+                &BindGroupLayoutEntries::sequential(
+                    ShaderStages::VERTEX,
+                    (uniform_buffer::<CameraUniform>(false)
+                        .visibility(ShaderStages::VERTEX_FRAGMENT),),
+                ),
+            ),
+        );
     }
 }
 
@@ -492,8 +629,8 @@ pub fn extract_camera(
     main_camera: Extract<Res<camera::Camera>>,
 ) {
     let view_proj = main_camera.build_view_projection_matrix();
-
-    camera_buffer.0.push(&CameraUniform {
+    camera_buffer.buf.clear();
+    camera_buffer.buf.push(&CameraUniform {
         view_proj: view_proj.into(),
     });
 }
@@ -520,7 +657,9 @@ fn prepare_buffers(
 ) {
     vertex_buffer.0.write_buffer(&render_device, &render_queue);
     index_buffer.0.write_buffer(&render_device, &render_queue);
-    uniform_buffer.0.write_buffer(&render_device, &render_queue);
+    uniform_buffer
+        .buf
+        .write_buffer(&render_device, &render_queue);
 }
 
 fn prepare_bind_groups(
@@ -530,6 +669,7 @@ fn prepare_bind_groups(
     mut param: StaticSystemParam<SystemParamItem<'_, '_, <ApplierMaterial as AsBindGroup>::Param>>,
     prepared_material: Option<Res<PreparedApplierMaterial>>,
     pipeline: Res<ApplierPipeline>,
+    mut camera: ResMut<CameraBuffer>,
 ) {
     if prepared_material.is_none() {
         let prepared = material
@@ -540,5 +680,8 @@ fn prepare_bind_groups(
             _bindings: prepared.bindings,
             bind_group: prepared.bind_group,
         });
+    }
+    if camera.bind_group.is_none() {
+        camera.init_bind_group(&render_device);
     }
 }

@@ -20,6 +20,7 @@ bevy = { default-features = false, version = "0.15", features = [
 bevy_internal = { version = "0.15", features = [ "bevy_image" ]}
 
 bevy_mod_debugdump = "0.12"
+bitmask-enum = "2.2.5"
 bytemuck = { version = "1.14", features = ["derive"] }
 cgmath = "0.18"
 
