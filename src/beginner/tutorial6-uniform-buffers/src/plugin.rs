@@ -15,7 +15,7 @@ use bevy::{
     },
 };
 use camera::CameraUniform;
-use cgmath::{Matrix4, Point3, Vector3};
+use cgmath::{Point3, Vector3};
 use wgpu::BufferUsages;
 
 use crate::plugin::pipeline::{ApplierPipeline, APPLIER_SHADER_HANDLE};
@@ -84,7 +84,7 @@ mod camera {
     }
 
     #[bitmask(u8)]
-    enum CameraDirection {
+    pub enum CameraDirection {
         Forward = 0b00000001,
         Backward = 0b00000010,
         Left = 0b00000100,
@@ -390,11 +390,9 @@ mod pipeline {
     use bevy::{
         asset::Handle,
         ecs::{system::Resource, world::FromWorld},
-        prelude::Camera,
         render::{
             render_resource::{
-                binding_types::uniform_buffer, AsBindGroup, BindGroupLayout,
-                BindGroupLayoutEntries, CachedRenderPipelineId, FragmentState, PipelineCache,
+                AsBindGroup, BindGroupLayout, CachedRenderPipelineId, FragmentState, PipelineCache,
                 RenderPipelineDescriptor, Shader, VertexState,
             },
             renderer::RenderDevice,
@@ -402,10 +400,10 @@ mod pipeline {
     };
     use wgpu::{
         BlendState, ColorTargetState, ColorWrites, Face, FrontFace, MultisampleState, PolygonMode,
-        PrimitiveState, PrimitiveTopology, ShaderStages, TextureFormat,
+        PrimitiveState, PrimitiveTopology, TextureFormat,
     };
 
-    use super::{camera::CameraUniform, material::ApplierMaterial, mesh::Vertex, CameraBuffer};
+    use super::{material::ApplierMaterial, mesh::Vertex, CameraBuffer};
 
     pub const APPLIER_SHADER_HANDLE: Handle<Shader> =
         Handle::weak_from_u128(154484490495509739857733487233335592041);
@@ -485,7 +483,7 @@ impl Plugin for ApplierPlugin {
             "shaders.wgsl",
             Shader::from_wgsl
         );
-        app.add_plugins((camera::CameraPlugin))
+        app.add_plugins(camera::CameraPlugin)
             .insert_resource(MousePosition(0.0, 0.0))
             .init_resource::<ApplierMaterial>()
             .insert_resource(camera::Camera {
@@ -548,7 +546,7 @@ pub struct CameraBuffer {
 }
 
 impl FromWorld for CameraBuffer {
-    fn from_world(world: &mut World) -> Self {
+    fn from_world(_world: &mut World) -> Self {
         let buf = DynamicUniformBuffer::default();
 
         Self {
@@ -560,12 +558,17 @@ impl FromWorld for CameraBuffer {
 }
 
 impl CameraBuffer {
-    pub fn init_bind_group(&mut self, render_device: &RenderDevice) {
-        self.bind_group = Some(render_device.create_bind_group(
-            "Camera bind group",
-            &self.layout.as_ref().unwrap(),
-            &BindGroupEntries::single(self.buf.buffer().unwrap().as_entire_buffer_binding()),
-        ));
+    pub fn try_init_bind_group(&mut self, render_device: &RenderDevice) -> bool {
+        if let Some(layout) = self.layout.as_ref() {
+            self.bind_group = Some(render_device.create_bind_group(
+                "Camera bind group",
+                layout,
+                &BindGroupEntries::single(self.buf.buffer().unwrap().as_entire_buffer_binding()),
+            ));
+            true
+        } else {
+            false
+        }
     }
 
     pub fn init_bind_group_layout(&mut self, render_device: &RenderDevice) {
@@ -682,6 +685,6 @@ fn prepare_bind_groups(
         });
     }
     if camera.bind_group.is_none() {
-        camera.init_bind_group(&render_device);
+        camera.try_init_bind_group(&render_device);
     }
 }
