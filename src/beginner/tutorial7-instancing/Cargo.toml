@@ -1,0 +1,34 @@
+[package]
+name = "tutorial7-instancing"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "tutorial7-instancing"
+path = "src/main.rs"
+
+
+[dependencies]
+bevy = { default-features = false, version = "0.15", features = [
+    "bevy_asset",
+    "bevy_winit",
+    "bevy_render",
+    "bevy_window",
+    "multi_threaded",
+    "png",
+  ] }
+bevy_internal = { version = "0.15", features = [ "bevy_image" ]}
+
+bevy_mod_debugdump = "0.12"
+bitmask-enum = "2.2.5"
+bytemuck = { version = "1.14", features = ["derive"] }
+cgmath = "0.18"
+
+wgpu = { version = "23", default-features = false, features = [
+  "wgsl",
+  "dx12",
+  "metal",
+  "naga-ir",
+  "fragile-send-sync-non-atomic-wasm",
+] }
+
