@@ -16,8 +16,8 @@ use bevy::{
     },
 };
 use camera::CameraUniform;
-use cgmath::{InnerSpace, Point3, Quaternion, Rotation3, Vector3, Zero};
-use wgpu::{core::instance, BufferAddress, BufferUsages, VertexStepMode};
+use cgmath::{InnerSpace, Quaternion, Rotation3, Vector3, Zero};
+use wgpu::{BufferAddress, BufferUsages, VertexStepMode};
 
 use crate::plugin::pipeline::{ApplierPipeline, APPLIER_SHADER_HANDLE};
 
@@ -257,7 +257,7 @@ mod node {
 
     use super::{
         graph::ApplierSubgraph, material::PreparedApplierMaterial, pipeline::ApplierPipeline,
-        CameraBuffer, IndexBuffer, InstanceBuffer, MousePosition, VertexBuffer,
+        IndexBuffer, InstanceBuffer, MousePosition, PreparedCamera, VertexBuffer,
     };
 
     pub struct SurfaceNode;
@@ -278,11 +278,7 @@ mod node {
             let bind_group = world.resource::<PreparedApplierMaterial>();
             let instance_buffer = world.resource::<InstanceBuffer>();
             let instances = world.resource::<super::Instances>();
-            let camera_bind_group = world
-                .resource::<CameraBuffer>()
-                .bind_group
-                .as_ref()
-                .unwrap();
+            let camera_bind_group = world.resource::<PreparedCamera>();
 
             for window in windows.values() {
                 if let Some(view) = window.swap_chain_texture_view.as_ref() {
@@ -312,7 +308,7 @@ mod node {
                     {
                         render_pass.set_render_pipeline(pipeline);
                         render_pass.set_bind_group(0, &bind_group.bind_group, &[]);
-                        render_pass.set_bind_group(1, camera_bind_group, &[]);
+                        render_pass.set_bind_group(1, &camera_bind_group.bind_group, &[]);
                         render_pass.set_vertex_buffer(
                             0,
                             vertex_buffer
@@ -431,14 +427,10 @@ mod pipeline {
 
     impl FromWorld for ApplierPipeline {
         fn from_world(world: &mut bevy::prelude::World) -> Self {
-            let mut camera = world.remove_resource::<CameraBuffer>().unwrap();
-
             let render_device = world.resource::<RenderDevice>();
             let material_layout = ApplierMaterial::bind_group_layout(render_device);
+            let camera_layout = CameraBuffer::bind_group_layout(render_device);
 
-            camera.init_bind_group_layout(render_device);
-            world.insert_resource(camera);
-            let camera = world.resource::<CameraBuffer>();
             let descriptor = RenderPipelineDescriptor {
                 vertex: VertexState {
                     shader: APPLIER_SHADER_HANDLE,
@@ -456,10 +448,7 @@ mod pipeline {
                         write_mask: ColorWrites::ALL,
                     })],
                 }),
-                layout: vec![
-                    material_layout.clone(),
-                    camera.layout.as_ref().unwrap().clone(),
-                ],
+                layout: vec![material_layout.clone(), camera_layout.clone()],
                 push_constant_ranges: Vec::new(),
                 primitive: PrimitiveState {
                     front_face: FrontFace::Ccw,
@@ -558,47 +547,42 @@ impl Plugin for ApplierPlugin {
 #[derive(Resource)]
 pub struct CameraBuffer {
     buf: DynamicUniformBuffer<CameraUniform>,
-    bind_group: Option<BindGroup>,
-    layout: Option<BindGroupLayout>,
+}
+
+#[derive(Resource)]
+pub struct PreparedCamera {
+    bind_group: BindGroup,
 }
 
 impl FromWorld for CameraBuffer {
     fn from_world(_world: &mut World) -> Self {
         let buf = DynamicUniformBuffer::default();
 
-        Self {
-            buf,
-            bind_group: None,
-            layout: None,
-        }
+        Self { buf }
     }
 }
 
 impl CameraBuffer {
-    pub fn try_init_bind_group(&mut self, render_device: &RenderDevice) -> bool {
-        if let Some(layout) = self.layout.as_ref() {
-            self.bind_group = Some(render_device.create_bind_group(
-                "Camera bind group",
-                layout,
-                &BindGroupEntries::single(self.buf.buffer().unwrap().as_entire_buffer_binding()),
-            ));
-            true
-        } else {
-            false
-        }
+    pub fn bind_group(&self, render_device: &RenderDevice) -> BindGroup {
+        let layout = Self::bind_group_layout(render_device);
+        render_device.create_bind_group(
+            "Camera bind group",
+            &layout,
+            &BindGroupEntries::single(self.buf.buffer().unwrap().as_entire_buffer_binding()),
+        )
     }
 
-    pub fn init_bind_group_layout(&mut self, render_device: &RenderDevice) {
-        self.layout = Some(
-            render_device.create_bind_group_layout(
-                "Camera bind group layout",
-                &BindGroupLayoutEntries::sequential(
-                    ShaderStages::VERTEX,
-                    (uniform_buffer::<CameraUniform>(false)
-                        .visibility(ShaderStages::VERTEX_FRAGMENT),),
+    pub fn bind_group_layout(render_device: &RenderDevice) -> BindGroupLayout {
+        render_device.create_bind_group_layout(
+            "Camera bind group layout",
+            &BindGroupLayoutEntries::sequential(
+                ShaderStages::VERTEX,
+                (
+                    uniform_buffer::<CameraUniform>(false)
+                        .visibility(ShaderStages::VERTEX_FRAGMENT),
                 ),
             ),
-        );
+        )
     }
 }
 
@@ -794,8 +778,9 @@ fn prepare_bind_groups(
     material: Res<ApplierMaterial>,
     mut param: StaticSystemParam<SystemParamItem<'_, '_, <ApplierMaterial as AsBindGroup>::Param>>,
     prepared_material: Option<Res<PreparedApplierMaterial>>,
+    prepared_camera: Option<Res<PreparedCamera>>,
     pipeline: Res<ApplierPipeline>,
-    mut camera: ResMut<CameraBuffer>,
+    camera: ResMut<CameraBuffer>,
 ) {
     if prepared_material.is_none() {
         let prepared = material
@@ -807,7 +792,9 @@ fn prepare_bind_groups(
             bind_group: prepared.bind_group,
         });
     }
-    if camera.bind_group.is_none() {
-        camera.try_init_bind_group(&render_device);
+    if prepared_camera.is_none() {
+        commands.insert_resource(PreparedCamera {
+            bind_group: camera.bind_group(&render_device),
+        });
     }
 }
