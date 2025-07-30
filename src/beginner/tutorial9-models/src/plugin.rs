@@ -1,27 +1,22 @@
+use std::collections::HashMap;
+
 use bevy::{
     asset::load_internal_asset,
     ecs::system::{StaticSystemParam, SystemParamItem},
     prelude::*,
     render::{
-        graph::CameraDriverLabel,
-        mesh::VertexBufferLayout,
-        render_graph::{RenderGraph, RenderGraphApp},
-        render_resource::{
+        graph::CameraDriverLabel, mesh::VertexBufferLayout, render_asset::RenderAssetPlugin, render_graph::{RenderGraph, RenderGraphApp}, render_resource::{
             binding_types::uniform_buffer, AsBindGroup, BindGroup, BindGroupEntries,
             BindGroupLayout, BindGroupLayoutEntries, DynamicUniformBuffer, RawBufferVec,
             ShaderStages, ShaderType,
-        },
-        renderer::{RenderDevice, RenderQueue},
-        texture::TextureCache,
-        view::ViewDepthTexture,
-        Extract, Render, RenderApp, RenderSet,
+        }, renderer::{RenderDevice, RenderQueue}, texture::TextureCache, view::ViewDepthTexture, Extract, Render, RenderApp, RenderSet
     },
 };
 use camera::CameraUniform;
 use cgmath::{InnerSpace, Quaternion, Rotation3, Vector3, Zero};
 use wgpu::{BufferAddress, BufferUsages, Extent3d, TextureDescriptor, VertexStepMode};
 
-use crate::plugin::pipeline::{ApplierPipeline, APPLIER_SHADER_HANDLE};
+use crate::plugin::{mesh::{ApplierGpuMesh, ApplierMesh, ApplierMesh3d, ApplierMeshLoader}, pipeline::{ApplierPipeline, APPLIER_SHADER_HANDLE}};
 
 use self::{
     material::{ApplierMaterial, PreparedApplierMaterial},
@@ -183,12 +178,138 @@ mod graph {
     }
 }
 
-mod mesh {
-    use std::mem;
+pub mod mesh {
+    use std::{io::BufReader, mem, vec};
 
-    use bevy::render::render_resource::{ShaderType, VertexBufferLayout};
+    use thiserror::Error;
+    use tobj::{self, LoadOptions, GPU_LOAD_OPTIONS};
 
-    use wgpu::{BufferAddress, VertexStepMode};
+    use bevy::{
+        asset::{uuid::Error, Asset, AssetLoader, AsyncReadExt, Handle}, 
+        ecs::{component::Component, system::lifetimeless::SRes}, 
+        reflect::TypePath, 
+        render::{
+            render_asset::RenderAsset, 
+            render_resource::{RawBufferVec, ShaderType, VertexBufferLayout}, 
+            renderer::{RenderDevice, RenderQueue}
+        }
+    };
+
+
+
+    use wgpu::{BufferAddress, BufferUsages, VertexStepMode};
+
+    pub struct ApplierGpuMesh {
+        pub vertex_buffer: RawBufferVec<Vertex>,
+        pub index_buffer: RawBufferVec<u32>
+    }
+
+    impl RenderAsset for ApplierGpuMesh {
+        type SourceAsset = ApplierMesh;
+    
+        type Param = (
+            SRes<RenderDevice>, 
+            SRes<RenderQueue>
+        );
+    
+        fn prepare_asset(
+            source_asset: Self::SourceAsset,
+            _: bevy::asset::AssetId<Self::SourceAsset>,
+            param: &mut bevy::ecs::system::SystemParamItem<Self::Param>,
+        ) -> Result<Self, bevy::render::render_asset::PrepareAssetError<Self::SourceAsset>> {
+            let mut vertex_buffer = RawBufferVec::new(BufferUsages::VERTEX);
+            vertex_buffer.extend(source_asset.vertices);
+            vertex_buffer.write_buffer(&param.0, &param.1);
+
+            let mut index_buffer = RawBufferVec::new(BufferUsages::INDEX);
+            index_buffer.extend(source_asset.indices);
+            index_buffer.write_buffer(&param.0, &param.1);
+            
+            Ok(ApplierGpuMesh { vertex_buffer, index_buffer})
+
+        }
+    }
+    
+    #[derive(Default)]
+    pub struct ApplierMeshLoader;
+
+    #[derive(Debug, Error)]
+    pub enum ApplierMeshLoaderError {
+        #[error("COuld not load asset.")]
+        Failed
+    }
+
+    impl AssetLoader for ApplierMeshLoader {
+        type Asset = ApplierMesh;
+    
+        type Settings = ();
+    
+        type Error = ApplierMeshLoaderError;
+    
+        async fn load(
+            &self,
+            reader: &mut dyn bevy::asset::io::Reader,
+            _: &Self::Settings,
+            _: &mut bevy::asset::LoadContext<'_>,
+        ) ->  Result<Self::Asset, Self::Error> {
+            let mut buf = Vec::new();
+            reader.read_to_end(&mut buf).await.map_err(|_| ApplierMeshLoaderError::Failed)?;
+            
+            // Create a cursor from the buffer to provide Read trait
+            let cursor = std::io::Cursor::new(buf);
+            let mut buf_reader = BufReader::new(cursor);
+            
+            let (models, _) = tobj::load_obj_buf(&mut buf_reader, &GPU_LOAD_OPTIONS, |_| {
+                // Material loading callback - for now, we'll skip materials
+                Err(tobj::LoadError::OpenFileFailed)
+            }).map_err(|_| ApplierMeshLoaderError::Failed)?;
+            
+            // Convert the first model's mesh to our format
+            if let Some(model) = models.first() {
+                let mesh = &model.mesh;
+                
+                // Convert positions and tex coords to our Vertex format
+                let mut vertices = Vec::new();
+                for i in 0..(mesh.positions.len() / 3) {
+                    let pos_idx = i * 3;
+                    let tex_idx = i * 2;
+                    
+                    vertices.push(Vertex {
+                        position: [
+                            mesh.positions[pos_idx],
+                            mesh.positions[pos_idx + 1],
+                            mesh.positions[pos_idx + 2],
+                        ],
+                        tex_coords: if tex_idx < mesh.texcoords.len() {
+                            [mesh.texcoords[tex_idx], mesh.texcoords[tex_idx + 1]]
+                        } else {
+                            [0.0, 0.0]
+                        },
+                    });
+                }
+                
+                Ok(ApplierMesh { 
+                    vertices,
+                    indices: mesh.indices.clone(),
+                })
+            } else {
+                Err(ApplierMeshLoaderError::Failed)
+            }
+        }
+        
+        fn extensions(&self) -> &[&str] {
+            &[".obj"]
+        }
+    }
+
+    #[derive(Clone, Asset, TypePath)]
+    pub struct ApplierMesh {
+        vertices: Vec<Vertex>, 
+        indices: Vec<u32>,
+    }
+
+    #[derive(Clone, Component)]
+    pub struct ApplierMesh3d(pub Handle<ApplierMesh>);
 
     #[repr(C)]
     #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable, ShaderType)]
@@ -248,16 +369,14 @@ mod node {
     use bevy::{
         ecs::world::FromWorld,
         render::{
-            render_graph::Node,
-            render_resource::{
+            render_asset::RenderAssets, render_graph::Node, render_resource::{
                 LoadOp, Operations, PipelineCache, RenderPassColorAttachment, StoreOp,
-            },
-            view::ExtractedWindows,
+            }, view::ExtractedWindows
         },
     };
     use wgpu::{Color, RenderPassDescriptor};
 
-    use crate::plugin::{DepthTexture, Instances};
+    use crate::plugin::{mesh::ApplierGpuMesh, DepthTexture, InstanceBuffers, Instances};
 
     use super::{
         graph::ApplierSubgraph, material::PreparedApplierMaterial, pipeline::ApplierPipeline,
@@ -277,14 +396,27 @@ mod node {
             let mouse_position = world.resource::<MousePosition>();
             let pipeline_cache = world.resource::<PipelineCache>();
             let applier_pipeline = world.resource::<ApplierPipeline>();
-            let vertex_buffer = world.resource::<VertexBuffer>();
-            let index_buffer = world.resource::<IndexBuffer>();
+            
             let bind_group = world.resource::<PreparedApplierMaterial>();
-            let instance_buffer = world.resource::<InstanceBuffer>();
-            let instances = world.resource::<Instances>();
+            // let instance_buffer = world.resource::<InstanceBuffer>();
+            // let instances = world.resource::<Instances>();
+            let instance_buffers = world.resource::<InstanceBuffers>();
             let camera_bind_group = world.resource::<PreparedCamera>();
             let depth_texture = world.resource::<DepthTexture>();
+            let render_asset = world.resource::<RenderAssets<ApplierGpuMesh>>();
 
+            let (mesh, instance_buffer) = if let Some(instances) = instance_buffers.0.iter().last() {
+                instances
+            } else {
+                return Ok(());
+            };
+
+            let mesh = if let Some(res) = render_asset.get(mesh.id()) {
+                res
+            } else {
+                return Ok(())
+            };
+            
             let depth_stencil_attachment = Some(
                 depth_texture
                     .view_depth_texture
@@ -294,7 +426,7 @@ mod node {
             for window in windows.values() {
                 if let Some(view) = window.swap_chain_texture_view.as_ref() {
                     let color_attachment = Some(RenderPassColorAttachment {
-                        view: view,
+                        view,
                         resolve_target: None,
                         ops: Operations {
                             load: LoadOp::Clear(Color {
@@ -322,8 +454,7 @@ mod node {
                         render_pass.set_bind_group(1, &camera_bind_group.bind_group, &[]);
                         render_pass.set_vertex_buffer(
                             0,
-                            vertex_buffer
-                                .0
+                            mesh.vertex_buffer
                                 .buffer()
                                 .expect("buffer was not set")
                                 .slice(..),
@@ -331,14 +462,12 @@ mod node {
                         render_pass.set_vertex_buffer(
                             1,
                             instance_buffer
-                                .0
                                 .buffer()
                                 .expect("buffer was not set")
                                 .slice(..),
                         );
                         render_pass.set_index_buffer(
-                            index_buffer
-                                .0
+                            mesh.index_buffer
                                 .buffer()
                                 .expect("buffer was not set")
                                 .slice(..),
@@ -346,9 +475,9 @@ mod node {
                             wgpu::IndexFormat::Uint32,
                         );
                         render_pass.draw_indexed(
-                            0..index_buffer.0.len() as u32,
+                            0..mesh.index_buffer.len() as u32,
                             0,
-                            0..instances.0.len() as u32,
+                            0..instance_buffer.len() as u32,
                         )
                     }
                 }
@@ -505,6 +634,9 @@ impl Plugin for ApplierPlugin {
             Shader::from_wgsl
         );
         app.add_plugins(camera::CameraPlugin)
+            .add_plugins(RenderAssetPlugin::<ApplierGpuMesh>::default())
+            .init_asset::<ApplierMesh>()
+            .init_asset_loader::<ApplierMeshLoader>()
             .insert_resource(MousePosition(0.0, 0.0))
             .init_resource::<ApplierMaterial>()
             .insert_resource(camera::Camera {
@@ -527,9 +659,12 @@ impl Plugin for ApplierPlugin {
                 .init_resource::<InstanceBuffer>()
                 .init_resource::<Instances>()
                 .init_resource::<ExtractedWindow>()
+                .init_resource::<MeshInstances>()
+                .init_resource::<InstanceBuffers>()
                 .add_systems(
                     ExtractSchedule,
                     (
+                        extract_mesh_entities,
                         extract_mouse_position,
                         extract_material,
                         extract_camera,
@@ -699,6 +834,16 @@ impl FromWorld for InstanceBuffer {
     }
 }
 
+
+#[derive(Resource)]
+pub struct InstanceBuffers(HashMap<Handle<ApplierMesh>, RawBufferVec<InstanceRaw>>);
+
+impl FromWorld for InstanceBuffers {
+    fn from_world(_world: &mut World) -> Self {
+        Self(HashMap::new())
+    }
+}
+
 #[derive(Resource)]
 pub struct Instances(Vec<Instance>);
 
@@ -708,6 +853,7 @@ const INSTANCE_DISPLACEMENT: cgmath::Vector3<f32> = cgmath::Vector3::new(
     0.0,
     NUM_INSTANCES_PER_ROW as f32 * 0.5,
 );
+const SPACE_BETWEEN: f32 = 3.0;
 
 impl FromWorld for Instances {
     fn from_world(_world: &mut World) -> Self {
@@ -715,7 +861,7 @@ impl FromWorld for Instances {
             .flat_map(|z| {
                 (0..NUM_INSTANCES_PER_ROW).map(move |x| {
                     let position =
-                        cgmath::Vector3::new(x as f32, 0.0, z as f32) - INSTANCE_DISPLACEMENT;
+                        SPACE_BETWEEN * cgmath::Vector3::new(x as f32, 0.0, z as f32) - INSTANCE_DISPLACEMENT;
                     let rotation = if position.is_zero() {
                         cgmath::Quaternion::from_axis_angle(
                             cgmath::Vector3::unit_y(),
@@ -733,6 +879,27 @@ impl FromWorld for Instances {
             .collect();
         Self(instances)
     }
+}
+
+#[derive(Resource, Default)]
+pub struct MeshInstances(HashMap<Handle<ApplierMesh>, Vec<Instance>>);
+
+fn extract_mesh_entities(
+    query: Extract<Query<(&ApplierMesh3d, &Transform)>>, 
+    mut instances: ResMut<MeshInstances>,
+) {
+    let mut instance_map = HashMap::new();
+    for (mesh, transform) in query.iter() {
+        if !instance_map.contains_key(&mesh.0) {
+            instance_map.insert(mesh.0.clone(), vec![]);   
+        }
+        let vec = instance_map.get_mut(&mesh.0).unwrap();
+        vec.push(Instance {
+            position: Vector3::new(transform.translation.x, transform.translation.y, transform.translation.z),
+            rotation: cgmath::Quaternion::new(transform.rotation.w, transform.rotation.x, transform.rotation.y, transform.rotation.z) 
+        });
+    }
+    instances.0 = instance_map;
 }
 
 fn extract_mouse_position(
@@ -801,6 +968,8 @@ fn prepare_buffers(
     mut uniform_buffer: ResMut<CameraBuffer>,
     mut instance_buffer: ResMut<InstanceBuffer>,
     instances: Res<Instances>,
+    mut instance_buffers: ResMut<InstanceBuffers>,
+    mesh_instances: Res<MeshInstances>
 ) {
     vertex_buffer.0.write_buffer(&render_device, &render_queue);
     index_buffer.0.write_buffer(&render_device, &render_queue);
@@ -814,6 +983,18 @@ fn prepare_buffers(
     instance_buffer
         .0
         .write_buffer(&render_device, &render_queue);
+
+    for (handle, instances) in &mesh_instances.0 {
+        if !instance_buffers.0.contains_key(handle) {
+            let buff = RawBufferVec::new(BufferUsages::VERTEX);
+            instance_buffers.0.insert(handle.clone(), buff);
+        }
+        let buffer = instance_buffers.0.get_mut(handle).unwrap();
+        buffer.clear();
+        buffer.extend(instances.iter().map(|i| i.to_raw()));
+        buffer.write_buffer(&render_device, &render_queue);
+    }
+    // TODO: Remove dead handles 
 }
 
 fn prepare_bind_groups(
